@@ -1,6 +1,6 @@
 [package]
 name = "pllm"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["yybit <yybit2@gmail.com>"]
 license = "Apache-2.0"
