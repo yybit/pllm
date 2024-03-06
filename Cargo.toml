@@ -16,3 +16,4 @@ include = ["src/*.rs", "Cargo.toml"]
 thiserror = "1.0.57"
 byteorder = "1.5.0"
 num_enum = "0.7.2"
+rand = "0.8.5"
