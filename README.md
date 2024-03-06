@@ -1,3 +1,6 @@
+[![crates.io](https://img.shields.io/crates/v/pllm.svg)](https://crates.io/crates/pllm)
+[![docs.rs](https://docs.rs/pllm/badge.svg)](https://docs.rs/pllm)
+
 # Portable LLM
 
 Rust rewrite of [llama2.c](https://github.com/karpathy/llama2.c.git)
