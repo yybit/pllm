@@ -3,7 +3,7 @@
 
 # Portable LLM
 
-A rust library for LLM inference，which ported from [llama2.c](https://github.com/karpathy/llama2.c.git). Support [gguf](https://github.com/ggerganov/ggml/blob/master/docs/gguf.md) is working in progress.
+A rust library for LLM inference，which ported from [llama2.c](https://github.com/karpathy/llama2.c.git). Reading model from [gguf](https://github.com/ggerganov/ggml/blob/master/docs/gguf.md) is working in progress.
 
 ## Example
 
@@ -51,7 +51,7 @@ let tokenizer_file = File::open("testdata/tokenizer.bin").unwrap();
 let tokenizer_reader = BufReader::new(tokenizer_file);
 let tokenizer = Tokenizer::from_reader(config.vocab_size as usize, tokenizer_reader).unwrap();
 
-// Generate text by prompt
+// Generate text from prompts
 let iterator = LLM::new(config, tokenizer, weights)
     .inference("a dog".to_string(), 0.8)
     .unwrap();
