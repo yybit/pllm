@@ -15,4 +15,7 @@ pub enum RlmError {
 
     #[error("{0}")]
     Other(String),
+
+    #[error("Invalid gguf metadata key: {0}")]
+    InvalidGgufMetadataKey(String),
 }

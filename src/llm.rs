@@ -1,14 +1,10 @@
-use std::{
-    cmp,
-    io::{self, Write},
-    time::Instant,
-};
+use std::cmp;
 
 use crate::{
     errors::RlmError, transformer::Transformer, util::FloatVecExt, Config, Tokenizer, Weights,
 };
 
-const DEFAULT_STEPS: i32 = 256;
+const DEFAULT_STEPS: u32 = 256;
 
 pub struct LLM {
     config: Config,
@@ -29,63 +25,107 @@ impl LLM {
         }
     }
 
-    pub fn inference(&mut self, prompt: String, temperature: f32) -> Result<(), RlmError> {
-        let steps = cmp::min(self.config.seq_len, DEFAULT_STEPS) as usize;
+    pub fn inference(
+        self,
+        prompt: String,
+        temperature: f32,
+    ) -> Result<InferenceIterator, RlmError> {
+        let steps = cmp::min(self.config.seq_len, DEFAULT_STEPS);
 
         let prompt_tokens = self.tokenizer.bpe_encode(prompt)?;
         if prompt_tokens.is_empty() {
             return Err(RlmError::Other("empty prompt".to_string()));
         }
 
-        let start = Instant::now();
+        let iterator = InferenceIterator::new(self, prompt_tokens, steps, temperature);
 
-        let mut next_token = prompt_tokens[0];
-        for pos in 0..steps {
-            let logits = self
-                .transformer
-                .run(next_token as i32, pos as i32, &self.weights)?;
+        Ok(iterator)
+    }
+}
 
-            next_token = if pos + 1 < prompt_tokens.len() {
-                prompt_tokens[pos + 1]
-            } else {
-                if temperature == 0.0 {
-                    logits.arg_max()
-                } else {
-                    logits.iter_mut().for_each(|x| *x = *x / temperature);
-                    logits.soft_max();
-                    logits.sample()
-                }
-            };
+pub struct InferenceIterator {
+    llm: LLM,
+    prompt_tokens: Vec<u32>,
+    steps: u32,
+    temperature: f32,
 
-            let token_str = match self.tokenizer.get_token(next_token) {
-                Some(t) => t,
-                None => {
-                    return Err(RlmError::Other(format!(
-                        "token not found, idx={}",
-                        next_token
-                    )))
-                }
-            };
-            if next_token == 1 {
-                break;
-            }
+    next_token: u32,
+    pos: u32,
+}
 
-            print!("{}", &token_str);
-            io::stdout().flush()?;
+impl InferenceIterator {
+    pub fn new(llm: LLM, prompt_tokens: Vec<u32>, steps: u32, temperature: f32) -> Self {
+        let next_token = prompt_tokens[0];
+        Self {
+            llm,
+            prompt_tokens,
+            steps,
+            temperature,
+            next_token,
+            pos: 0,
+        }
+    }
+}
+
+impl Iterator for InferenceIterator {
+    type Item = Result<String, RlmError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if (self.pos != 0 && self.next_token == 1) || self.pos >= self.steps {
+            return None;
         }
 
-        println!(
-            "\ntoken/s: {}\n",
-            (steps as u64 - 1) / start.elapsed().as_secs()
-        );
+        let logits = match self
+            .llm
+            .transformer
+            .run(self.next_token, self.pos, &self.llm.weights)
+        {
+            Ok(l) => l,
+            Err(e) => {
+                return Some(Err(e));
+            }
+        };
 
-        Ok(())
+        let next_token = if self.pos as usize + 1 < self.prompt_tokens.len() {
+            self.prompt_tokens[self.pos as usize + 1]
+        } else {
+            if self.temperature == 0.0 {
+                logits.arg_max()
+            } else {
+                logits.iter_mut().for_each(|x| *x = *x / self.temperature);
+                logits.soft_max();
+                logits.sample()
+            }
+        };
+
+        let token_str = match self.llm.tokenizer.get_token(next_token as usize) {
+            Some(t) => t,
+            None => {
+                return Some(Err(RlmError::Other(format!(
+                    "token not found, idx={}",
+                    self.next_token
+                ))))
+            }
+        };
+
+        self.pos += 1;
+        self.next_token = next_token;
+
+        if next_token == 1 {
+            None
+        } else {
+            Some(Ok(token_str))
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{fs::File, io::BufReader};
+    use std::{
+        fs::File,
+        io::{self, BufReader, Write},
+        time::Instant,
+    };
 
     use crate::llm::{Weights, LLM};
 
@@ -106,12 +146,21 @@ mod tests {
 
         let tokenizer =
             Tokenizer::from_reader(config.vocab_size as usize, tokenizer_reader).unwrap();
-        println!(
-            "{} {} {}",
-            tokenizer.max_token_length, tokenizer.vocab_size, tokenizer._total_token_length
-        );
+        println!("{}", tokenizer.max_token_length);
 
-        let mut llm = LLM::new(config, tokenizer, weights);
-        llm.inference("a dog".to_string(), 0.8).unwrap();
+        let iterator = LLM::new(config, tokenizer, weights)
+            .inference("a dog".to_string(), 0.8)
+            .unwrap();
+        let mut token_count = 0;
+        let start = Instant::now();
+        for (i, t) in iterator.enumerate() {
+            print!("{}", t.unwrap());
+            io::stdout().flush().unwrap();
+            token_count += 1;
+        }
+        println!(
+            "\ntoken/s: {}\n",
+            (token_count as u64 - 1) / start.elapsed().as_secs()
+        );
     }
 }

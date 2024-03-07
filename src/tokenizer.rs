@@ -2,22 +2,43 @@ use std::{collections::HashMap, io::Read};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::errors::RlmError;
+use crate::{errors::RlmError, gguf::GgufFile};
 
 #[derive(Debug)]
 pub struct Tokenizer {
+    #[allow(dead_code)]
     pub(crate) max_token_length: u32,
-    pub(crate) vocab_size: usize,
     vocab: Vec<String>,
-    token_id_map: HashMap<String, usize>,
     scores: Vec<f32>,
-
-    pub(crate) _total_token_length: u32,
+    token_id_map: HashMap<String, usize>,
 }
 
 impl Tokenizer {
     pub fn get_token(&self, index: usize) -> Option<String> {
         self.vocab.get(index).cloned()
+    }
+
+    pub fn from_gguf(gf: GgufFile) -> Result<Self, RlmError> {
+        let md = gf.metadata();
+
+        let vocab = md.get_string_array_result("tokenizer.ggml.tokens")?;
+        let token_id_map = vocab
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (v.clone(), i))
+            .collect::<HashMap<_, _>>();
+        let scores = md.get_f32_array_result("tokenizer.ggml.scores")?;
+
+        let bos_token = md.get_u32_result("tokenizer.ggml.bos_token_id")?;
+        let eos_token = md.get_u32_result("tokenizer.ggml.eos_token_id")?;
+        println!("bos: {}, eos: {}", bos_token, eos_token);
+
+        Ok(Self {
+            max_token_length: 0,
+            vocab,
+            scores,
+            token_id_map,
+        })
     }
 
     pub fn from_reader(vocab_size: usize, mut reader: impl Read) -> Result<Self, RlmError> {
@@ -27,7 +48,6 @@ impl Tokenizer {
         let mut scores = Vec::with_capacity(vocab_size);
         let mut token_id_map = HashMap::with_capacity(vocab_size);
 
-        let mut _total_token_length: u32 = 0;
         for i in 0..vocab_size {
             let score = reader.read_f32::<LittleEndian>()?;
             let len = reader.read_i32::<LittleEndian>()?;
@@ -45,20 +65,17 @@ impl Tokenizer {
             scores.push(score);
             vocab.push(value.clone());
             token_id_map.insert(value, i);
-            _total_token_length += len as u32;
         }
 
         Ok(Self {
             max_token_length,
-            vocab_size,
             vocab,
-            token_id_map,
             scores,
-            _total_token_length,
+            token_id_map,
         })
     }
 
-    pub fn bpe_encode(&self, text: String) -> Result<Vec<usize>, RlmError> {
+    pub fn bpe_encode(&self, text: String) -> Result<Vec<u32>, RlmError> {
         let mut tokens = Vec::with_capacity(text.len() + 2);
         tokens.push(1);
         let dummy_prefix = self
@@ -68,7 +85,7 @@ impl Tokenizer {
                 "dummy prefix ' '  not found in vocab".to_string(),
             ))?
             .clone();
-        tokens.push(dummy_prefix);
+        tokens.push(dummy_prefix as u32);
 
         for c in text.chars() {
             let id = self
@@ -76,7 +93,7 @@ impl Tokenizer {
                 .get(&c.to_string())
                 .ok_or(RlmError::Other(format!("{} not found in vocab", c)))?
                 .clone();
-            tokens.push(id);
+            tokens.push(id as u32);
         }
 
         loop {
@@ -86,12 +103,15 @@ impl Tokenizer {
 
             if tokens.len() > 0 {
                 for i in 0..tokens.len() - 1 {
-                    let merge_token =
-                        format!("{}{}", self.vocab[tokens[i]], self.vocab[tokens[i + 1]]);
+                    let merge_token = format!(
+                        "{}{}",
+                        self.vocab[tokens[i] as usize],
+                        self.vocab[tokens[i + 1] as usize]
+                    );
                     if let Some(&id) = self.token_id_map.get(&merge_token) {
                         if self.scores[id] > best_score {
                             best_score = self.scores[id];
-                            best_id = id;
+                            best_id = id as u32;
                             best_idx = Some(i);
                         }
                     }

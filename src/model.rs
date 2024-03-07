@@ -2,57 +2,83 @@ use std::io::Read;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::errors::RlmError;
+use crate::{errors::RlmError, gguf};
 
 #[derive(Debug, Clone)]
 pub struct Config {
     /// transformer dimension
-    pub(crate) dim: i32,
+    pub(crate) dim: u32,
     /// for ffn layers
-    pub(crate) hidden_dim: i32,
+    pub(crate) hidden_dim: u32,
     /// number of layers
-    pub(crate) n_layers: i32,
+    pub(crate) n_layers: u32,
     /// number of query headers
-    pub(crate) n_headers: i32,
+    pub(crate) n_heads: u32,
     /// number of key/value heads (can be < query heads because of multiquery)
-    pub(crate) n_kv_headers: i32,
+    pub(crate) n_kv_heads: u32,
     /// vocabulary size, usually 256 (byte-level)
-    pub vocab_size: i32,
+    pub vocab_size: u32,
     /// max sequence length
-    pub(crate) seq_len: i32,
+    pub(crate) seq_len: u32,
 }
 
 impl Config {
     pub fn from_reader(mut reader: impl Read) -> Result<Self, RlmError> {
-        let dim = reader.read_i32::<LittleEndian>()?;
-        let hidden_dim = reader.read_i32::<LittleEndian>()?;
-        let n_layers = reader.read_i32::<LittleEndian>()?;
-        let n_headers = reader.read_i32::<LittleEndian>()?;
-        let n_kv_headers = reader.read_i32::<LittleEndian>()?;
-        let vocab_size = reader.read_i32::<LittleEndian>()?;
-        let seq_len = reader.read_i32::<LittleEndian>()?;
+        let dim = reader.read_u32::<LittleEndian>()?;
+        let hidden_dim = reader.read_u32::<LittleEndian>()?;
+        let n_layers = reader.read_u32::<LittleEndian>()?;
+        let n_heads = reader.read_u32::<LittleEndian>()?;
+        let n_kv_heads = reader.read_u32::<LittleEndian>()?;
+        let vocab_size = reader.read_u32::<LittleEndian>()?;
+        let seq_len = reader.read_u32::<LittleEndian>()?;
 
         Ok(Self {
             dim,
             hidden_dim,
             n_layers,
-            n_headers,
-            n_kv_headers,
+            n_heads,
+            n_kv_heads,
             vocab_size,
             seq_len,
         })
     }
-    pub fn header_size(&self) -> i32 {
-        self.dim / self.n_headers
+
+    pub fn from_gguf(gf: gguf::GgufFile) -> Result<Self, RlmError> {
+        let md = gf.metadata();
+
+        let dim = md.get_u32_result("llama.embedding_length")?;
+        let hidden_dim = md.get_u32_result("llama.feed_forward_length")?;
+        let n_layers = md.get_u32_result("llama.block_count")?;
+        let n_heads = md.get_u32_result("llama.attention.head_count")?;
+        let n_kv_heads = md.get_u32_result("llama.attention.head_count_kv")?;
+        let vocab_size = md.get_u32_result("tokenizer.ggml.tokens")?;
+        let seq_len = md.get_u32_result("llama.context_length")?;
+
+        let norm_rms_eps = md.get_f32_result("llama.attention.layer_norm_rms_epsilon")?;
+        let rope_dim = md.get_u32_result("llama.rope.dimension_count")?;
+        println!("rms eps: {}, rope dim: {}", norm_rms_eps, rope_dim);
+
+        Ok(Self {
+            dim,
+            hidden_dim,
+            n_layers,
+            n_heads,
+            n_kv_heads,
+            vocab_size,
+            seq_len,
+        })
+    }
+    pub fn header_size(&self) -> u32 {
+        self.dim / self.n_heads
     }
 
-    pub fn kv_dim(&self) -> i32 {
-        (self.dim * self.n_kv_headers) / self.n_headers
+    pub fn kv_dim(&self) -> u32 {
+        (self.dim * self.n_kv_heads) / self.n_heads
     }
 
     /// integer multiplier of the kv sharing in multiquery
-    pub fn kv_mul(&self) -> i32 {
-        self.n_headers / self.n_kv_headers
+    pub fn kv_mul(&self) -> u32 {
+        self.n_heads / self.n_kv_heads
     }
 }
 
@@ -73,8 +99,8 @@ pub struct Weights {
     pub(crate) w2: Vec<f32>,
     pub(crate) w3: Vec<f32>,
     pub(crate) rms_final_weight: Vec<f32>,
-    pub(crate) freq_cis_real: Vec<f32>,
-    pub(crate) freq_cis_imag: Vec<f32>,
+    // pub(crate) freq_cis_real: Vec<f32>,
+    // pub(crate) freq_cis_imag: Vec<f32>,
 }
 
 impl Weights {
@@ -94,8 +120,8 @@ impl Weights {
         let w3 = w1.clone();
 
         let rms_final_weight = vec![0_f32; c.dim as usize];
-        let freq_cis_real = vec![0_f32; (c.seq_len * (c.dim / c.n_headers) / 2) as usize];
-        let freq_cis_imag = freq_cis_real.clone();
+        // let freq_cis_real = vec![0_f32; (c.seq_len * (c.dim / c.n_heads) / 2) as usize];
+        // let freq_cis_imag = freq_cis_real.clone();
 
         Self {
             token_embedding_table,
@@ -109,8 +135,8 @@ impl Weights {
             w2,
             w3,
             rms_final_weight,
-            freq_cis_real,
-            freq_cis_imag,
+            // freq_cis_real,
+            // freq_cis_imag,
         }
     }
 

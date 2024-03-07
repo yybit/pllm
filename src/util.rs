@@ -4,19 +4,19 @@ use crate::errors::RlmError;
 
 pub trait FloatVecExt<F> {
     fn rms_norm(&mut self, src: &[F], weights: &[F]);
-    fn get_chunk(&self, chunk_size: i32, chunk_index: i32) -> &[f32];
-    fn get_mut_chunk(&mut self, chunk_size: i32, chunk_index: i32) -> &mut [f32];
+    fn get_chunk(&self, chunk_size: u32, chunk_index: u32) -> &[f32];
+    fn get_mut_chunk(&mut self, chunk_size: u32, chunk_index: u32) -> &mut [f32];
     fn mat_mul(&mut self, src: &[F], weights: &[F]);
     fn soft_max(&mut self);
     fn accum(&mut self, other: &[F]);
-    fn arg_max(&self) -> usize;
-    fn sample(&self) -> usize;
+    fn arg_max(&self) -> u32;
+    fn sample(&self) -> u32;
     fn rope_rotate(
         &mut self,
         other: &mut [F],
-        pos: i32,
-        header_size: i32,
-        kv_dim: i32,
+        pos: u32,
+        header_size: u32,
+        kv_dim: u32,
     ) -> Result<(), RlmError>;
 }
 
@@ -27,12 +27,12 @@ impl FloatVecExt<f32> for [f32] {
             .for_each(|(v1, v2)| *v1 = *v1 + v2)
     }
 
-    fn get_chunk(&self, chunk_size: i32, chunk_index: i32) -> &[f32] {
+    fn get_chunk(&self, chunk_size: u32, chunk_index: u32) -> &[f32] {
         let range = (chunk_size * chunk_index) as usize..(chunk_size * (chunk_index + 1)) as usize;
         &self[range]
     }
 
-    fn get_mut_chunk(&mut self, chunk_size: i32, chunk_index: i32) -> &mut [f32] {
+    fn get_mut_chunk(&mut self, chunk_size: u32, chunk_index: u32) -> &mut [f32] {
         let range = (chunk_size * chunk_index) as usize..(chunk_size * (chunk_index + 1)) as usize;
         &mut self[range]
     }
@@ -82,34 +82,34 @@ impl FloatVecExt<f32> for [f32] {
         self.iter_mut().for_each(|v| *v = *v / sum);
     }
 
-    fn arg_max(&self) -> usize {
+    fn arg_max(&self) -> u32 {
         self.iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .map(|(index, _)| index)
+            .map(|(index, _)| index as u32)
             .unwrap_or(0)
     }
 
-    fn sample(&self) -> usize {
+    fn sample(&self) -> u32 {
         let mut rng = rand::thread_rng();
         let r: f32 = rng.gen_range(0.0..1.0);
         let mut cdf = 0.0;
         for (i, p) in self.iter().enumerate() {
             cdf += p;
             if r < cdf {
-                return i;
+                return i as u32;
             }
         }
 
-        self.len() - 1
+        self.len() as u32 - 1
     }
 
     fn rope_rotate(
         &mut self,
         other: &mut [f32],
-        pos: i32,
-        header_size: i32,
-        kv_dim: i32,
+        pos: u32,
+        header_size: u32,
+        kv_dim: u32,
     ) -> Result<(), RlmError> {
         if self.len() != other.len() {
             return Err(RlmError::Other(format!(
@@ -120,12 +120,12 @@ impl FloatVecExt<f32> for [f32] {
         }
 
         for i in (0..self.len() as usize).step_by(2) {
-            let head_dim = i as i32 % header_size;
+            let head_dim = i as u32 % header_size;
             let freq = 1.0 / 10000.0_f32.powf(head_dim as f32 / header_size as f32);
             let val = pos as f32 * freq;
             let fcr = val.cos();
             let fci = val.sin();
-            let rotn = if (i as i32) < kv_dim { 2 } else { 1 };
+            let rotn = if (i as u32) < kv_dim { 2 } else { 1 };
             for v in 0..rotn {
                 let dst = if v == 0 {
                     self.as_mut()

@@ -277,6 +277,35 @@ impl GgufMetadataValue {
             _ => None,
         }
     }
+
+    pub fn as_f32(&self) -> Option<f32> {
+        match self {
+            GgufMetadataValue::Float(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    pub fn as_string_array(&self) -> Option<Vec<String>> {
+        match self {
+            GgufMetadataValue::Array(v) => match v {
+                GgufArray::String(sa) => {
+                    Some(sa.iter().map(|s| s.to_string()).collect::<Vec<String>>())
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    pub fn as_f32_array(&self) -> Option<Vec<f32>> {
+        match self {
+            GgufMetadataValue::Array(v) => match v {
+                GgufArray::Float(sa) => Some(sa.clone()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -304,12 +333,54 @@ impl Metadata {
         self.0.get(key).map(|v| v.as_string()).unwrap_or(None)
     }
 
+    pub fn get_string_result(&self, key: &str) -> Result<String, RlmError> {
+        self.get_string(key)
+            .ok_or(RlmError::InvalidGgufMetadataKey(key.to_string()))
+    }
+
     pub fn get_u32(&self, key: &str) -> Option<u32> {
         self.0.get(key).map(|v| v.as_u32()).unwrap_or(None)
     }
 
+    pub fn get_u32_result(&self, key: &str) -> Result<u32, RlmError> {
+        self.get_u32(key)
+            .ok_or(RlmError::InvalidGgufMetadataKey(key.to_string()))
+    }
+
     pub fn get_u64(&self, key: &str) -> Option<u64> {
         self.0.get(key).map(|v| v.as_u64()).unwrap_or(None)
+    }
+
+    pub fn get_u64_result(&self, key: &str) -> Result<u64, RlmError> {
+        self.get_u64(key)
+            .ok_or(RlmError::InvalidGgufMetadataKey(key.to_string()))
+    }
+
+    pub fn get_f32(&self, key: &str) -> Option<f32> {
+        self.0.get(key).map(|v| v.as_f32()).unwrap_or(None)
+    }
+
+    pub fn get_f32_result(&self, key: &str) -> Result<f32, RlmError> {
+        self.get_f32(key)
+            .ok_or(RlmError::InvalidGgufMetadataKey(key.to_string()))
+    }
+
+    pub fn get_f32_array(&self, key: &str) -> Option<Vec<f32>> {
+        self.0.get(key).map(|v| v.as_f32_array()).unwrap_or(None)
+    }
+
+    pub fn get_f32_array_result(&self, key: &str) -> Result<Vec<f32>, RlmError> {
+        self.get_f32_array(key)
+            .ok_or(RlmError::InvalidGgufMetadataKey(key.to_string()))
+    }
+
+    pub fn get_string_array(&self, key: &str) -> Option<Vec<String>> {
+        self.0.get(key).map(|v| v.as_string_array()).unwrap_or(None)
+    }
+
+    pub fn get_string_array_result(&self, key: &str) -> Result<Vec<String>, RlmError> {
+        self.get_string_array(key)
+            .ok_or(RlmError::InvalidGgufMetadataKey(key.to_string()))
     }
 }
 
@@ -408,6 +479,10 @@ impl GgufFile {
             tensor_data: Vec::new(),
         })
     }
+
+    pub fn metadata(&self) -> &Metadata {
+        &self.header.metadata
+    }
 }
 
 #[cfg(test)]
@@ -418,17 +493,16 @@ mod tests {
 
     #[test]
     fn test_gguf_file() {
-        let f = File::open(
-            "testdata/sha256:c1864a5eb19305c40519da12cc543519e48a0697ecd30e15d5ac228644957d12",
-        )
-        .unwrap();
+        let f =
+            File::open("testdata/c1864a5eb19305c40519da12cc543519e48a0697ecd30e15d5ac228644957d12")
+                .unwrap();
         let mut reader = BufReader::new(f);
         let gguf_file = GgufFile::from_reader(&mut reader).unwrap();
         println!(
             "{:?} {:?} {:?}",
-            gguf_file.header.metadata.get_string("general.architecture"),
-            gguf_file.header.metadata.get_string("general.name"),
-            gguf_file.header.metadata.0.keys(),
+            gguf_file.metadata().get_string("general.architecture"),
+            gguf_file.metadata().get_string("general.name"),
+            gguf_file.metadata().0.keys(),
         );
     }
 }

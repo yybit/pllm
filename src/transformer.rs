@@ -3,13 +3,13 @@ use crate::{errors::RlmError, util::FloatVecExt, Config, Weights};
 #[derive(Clone)]
 pub struct LayerCache {
     data: Vec<f32>,
-    header_size: i32,
-    kv_dim: i32,
-    kv_mul: i32,
+    header_size: u32,
+    kv_dim: u32,
+    kv_mul: u32,
 }
 
 impl LayerCache {
-    pub fn new(header_size: i32, seq_len: i32, kv_dim: i32, kv_mul: i32) -> Self {
+    pub fn new(header_size: u32, seq_len: u32, kv_dim: u32, kv_mul: u32) -> Self {
         Self {
             data: vec![0.0; (kv_dim * seq_len) as usize],
             header_size,
@@ -18,13 +18,13 @@ impl LayerCache {
         }
     }
 
-    pub fn get(&self, position: i32, header_idx: i32) -> &[f32] {
+    pub fn get(&self, position: u32, header_idx: u32) -> &[f32] {
         let start =
             (position * self.kv_dim + (header_idx / self.kv_mul) * self.header_size) as usize;
         &self.data[start..(start + self.header_size as usize)]
     }
 
-    pub fn get_mut(&mut self, position: i32) -> &mut [f32] {
+    pub fn get_mut(&mut self, position: u32) -> &mut [f32] {
         self.data.get_mut_chunk(self.kv_dim, position)
     }
 }
@@ -35,7 +35,7 @@ pub struct Head {
 }
 
 impl Head {
-    pub fn new(seq_len: i32) -> Self {
+    pub fn new(seq_len: u32) -> Self {
         Self {
             scores: vec![0.0; seq_len as usize],
         }
@@ -47,9 +47,9 @@ impl Head {
         q: &[f32],
         k: &LayerCache,
         v: &LayerCache,
-        pos: i32,
-        header_idx: i32,
-        header_size: i32,
+        pos: u32,
+        header_idx: u32,
+        header_size: u32,
     ) {
         for t in 0..=pos {
             let keys = k.get(t, header_idx);
@@ -92,8 +92,8 @@ pub struct Layer {
     v: LayerCache,
 
     heads: Vec<Head>,
-    header_size: i32,
-    kv_dim: i32,
+    header_size: u32,
+    kv_dim: u32,
 }
 impl Layer {
     pub fn new(c: &Config) -> Self {
@@ -108,7 +108,7 @@ impl Layer {
         let k = LayerCache::new(c.header_size(), c.seq_len, c.kv_dim(), c.kv_mul());
         let v = LayerCache::new(c.header_size(), c.seq_len, c.kv_dim(), c.kv_mul());
 
-        let heads = vec![Head::new(c.seq_len); c.n_headers as usize];
+        let heads = vec![Head::new(c.seq_len); c.n_heads as usize];
 
         Self {
             xb,
@@ -135,7 +135,7 @@ impl Layer {
         wv: &[f32],
         rms_att_weight: &[f32],
         rms_ffn_weight: &[f32],
-        pos: i32,
+        pos: u32,
     ) -> Result<(), RlmError> {
         let k = self.k.get_mut(pos);
         let v = self.v.get_mut(pos);
@@ -153,11 +153,11 @@ impl Layer {
 
         // multihead attention. iterate over all heads
         for (h, header) in self.heads.iter_mut().enumerate() {
-            let xb = self.xb.get_mut_chunk(self.header_size, h as i32);
+            let xb = self.xb.get_mut_chunk(self.header_size, h as u32);
             xb.iter_mut().for_each(|item| *item = 0.0);
 
-            let q = self.q.get_chunk(self.header_size, h as i32);
-            header.calculate_activation(xb, q, &self.k, &self.v, pos, h as i32, self.header_size);
+            let q = self.q.get_chunk(self.header_size, h as u32);
+            header.calculate_activation(xb, q, &self.k, &self.v, pos, h as u32, self.header_size);
         }
 
         // final matmul to get the output of the attention
@@ -211,14 +211,14 @@ impl Transformer {
         }
     }
 
-    pub fn run(&mut self, token: i32, pos: i32, w: &Weights) -> Result<&mut [f32], RlmError> {
+    pub fn run(&mut self, token: u32, pos: u32, w: &Weights) -> Result<&mut [f32], RlmError> {
         let c = &self.config;
 
         self.x
             .copy_from_slice(&w.token_embedding_table.get_chunk(c.dim, token));
 
         for (lu, layer) in self.layers.iter_mut().enumerate() {
-            let l = lu as i32;
+            let l = lu as u32;
             layer.forward(
                 &mut self.x,
                 w.wo.get_chunk(c.dim * c.dim, l),
