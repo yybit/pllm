@@ -11,7 +11,8 @@ A rust library for LLM inference，which ported from [llama2.c](https://github.c
 # Download testdata
 make testdata
 # Run example in release mode
-cargo run -p example --release
+cd example
+cargo run --release
 ```
 
 output:
