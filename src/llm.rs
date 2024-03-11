@@ -1,7 +1,7 @@
 use std::cmp;
 
 use crate::{
-    errors::RlmError, transformer::Transformer, util::FloatVecExt, Config, Tokenizer, Weights,
+    errors::RlmError, transformer::Transformer, util::NumVecExt, Config, Tokenizer, Weights,
 };
 
 const DEFAULT_STEPS: u32 = 256;

@@ -16,17 +16,19 @@ cargo run --release
 ```
 
 output:
-> a dog and a cat. They were friends, but one day, they had a quarrel. The dog said, "I want to play with the ball." The cat said, "No, I want to play with the ball."
-The dog and the cat were both sad. They did not want to share. They both wanted the ball. They did not know what to do.
-Then, a bird flew down. The bird said, "Why don't you both play with the ball? You can be friends and share." The dog and the cat thought about it. They decided to share the ball.
-The dog and the cat took turns playing with the ball. They played together and were happy. They didn't have to quarrel anymore. They learned that sharing is good.
-token/s: 81
+> a dog named Mark. Mark loved to play with his ball. One day, Mark saw a big cat. The cat was very grumpy. Mark wanted to play with the cat.
+Mark said, "Hi, cat! Do you want to play?" The grumpy cat said, "No, I don't want to play. Go away." Mark was sad and walked away.
+Mark saw a ball and started to play with it. He kicked the ball and it went far away. The grumpy cat saw the ball and started to play with it too. They both had fun playing together.
+token/s: 140.46822742474916
 
 ## Performance
 
-|version|speed|os|arch|cpu|
-|--|--|--|--|--|
-|0.3.0|81 token/s|osx|x86|2.2 GHz Quad-Core Intel Core i7|
+model: `tinystories15M`, prompt: `a dog`
+
+|version|speed|os|arch|cpu|comment|
+|--|--|--|--|--|--|
+|0.3.0|81 token/s|osx|x86|2.2 GHz Quad-Core Intel Core i7|single thread|
+|0.3.1|140 token/s|osx|x86|2.2 GHz Quad-Core Intel Core i7|multiple thread|
 
 ## Usage
 
