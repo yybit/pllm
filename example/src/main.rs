@@ -33,6 +33,6 @@ fn main() {
     }
     println!(
         "\ntoken/s: {}\n",
-        (token_count as u64 - 1) / start.elapsed().as_secs()
+        (token_count as f64 - 1.0) / start.elapsed().as_millis() as f64 * 1000.0
     );
 }

@@ -1,4 +1,5 @@
-use crate::{errors::RlmError, util::FloatVecExt, Config, Weights};
+use crate::{errors::RlmError, util::NumVecExt, Config, Weights};
+use rayon::prelude::*;
 
 #[derive(Clone)]
 pub struct LayerCache {
@@ -152,13 +153,32 @@ impl Layer {
         self.q.rope_rotate(k, pos, self.header_size, self.kv_dim)?;
 
         // multihead attention. iterate over all heads
-        for (h, header) in self.heads.iter_mut().enumerate() {
-            let xb = self.xb.get_mut_chunk(self.header_size, h as u32);
-            xb.iter_mut().for_each(|item| *item = 0.0);
+        self.xb
+            .par_chunks_mut(self.header_size as usize)
+            .enumerate()
+            .zip(self.heads.par_iter_mut())
+            .for_each(|((h, xb_chunk), header)| {
+                xb_chunk.iter_mut().for_each(|item| *item = 0.0);
 
-            let q = self.q.get_chunk(self.header_size, h as u32);
-            header.calculate_activation(xb, q, &self.k, &self.v, pos, h as u32, self.header_size);
-        }
+                let q = self.q.get_chunk(self.header_size, h as u32);
+                header.calculate_activation(
+                    xb_chunk,
+                    q,
+                    &self.k,
+                    &self.v,
+                    pos,
+                    h as u32,
+                    self.header_size,
+                );
+            });
+
+        // for (h, header) in self.heads.iter_mut().enumerate() {
+        //     let xb = self.xb.get_mut_chunk(self.header_size, h as u32);
+        //     xb.iter_mut().for_each(|item| *item = 0.0);
+
+        //     let q = self.q.get_chunk(self.header_size, h as u32);
+        //     header.calculate_activation(xb, q, &self.k, &self.v, pos, h as u32, self.header_size);
+        // }
 
         // final matmul to get the output of the attention
         self.xb2.mat_mul(self.xb.as_slice(), wo);

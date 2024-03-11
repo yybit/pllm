@@ -1,6 +1,6 @@
 [package]
 name = "pllm"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 authors = ["yybit <yybit2@gmail.com>"]
 license = "Apache-2.0"
@@ -17,3 +17,6 @@ thiserror = "1.0.57"
 byteorder = "1.5.0"
 num_enum = "0.7.2"
 rand = "0.8.5"
+num-traits = "0.2.18"
+
+rayon = "1.9.0"
