@@ -10,7 +10,7 @@ A rust library for LLM inference，which ported from [llama2.c](https://github.c
 * Transformer (Currently support llama2 & gemma)
 * [GGUF](https://github.com/ggerganov/ggml/blob/master/docs/gguf.md) file format
 * SIMD (Only support x86_64 avx2, derived from [candle](https://github.com/huggingface/candle))
-* MMAP ::construction::::construction::
+* MMAP :construction: :construction:
 
 ## Example
 
