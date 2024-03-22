@@ -9,7 +9,7 @@ A rust library for LLM inference，which ported from [llama2.c](https://github.c
 
 * Transformer (Currently support llama2 & gemma)
 * [GGUF](https://github.com/ggerganov/ggml/blob/master/docs/gguf.md) file format
-* SIMD (Only support x86_64 avx2, derived from [candle](https://github.com/huggingface/candle))
+* SIMD (Support x86_64 avx2, derived from [candle](https://github.com/huggingface/candle))
 * MMAP :construction: :construction:
 
 ## Example
@@ -23,10 +23,13 @@ cargo run --release
 ```
 
 output:
-> a dog named Mark. Mark loved to play with his ball. One day, Mark saw a big cat. The cat was very grumpy. Mark wanted to play with the cat.
-Mark said, "Hi, cat! Do you want to play?" The grumpy cat said, "No, I don't want to play. Go away." Mark was sad and walked away.
-Mark saw a ball and started to play with it. He kicked the ball and it went far away. The grumpy cat saw the ball and started to play with it too. They both had fun playing together.
-token/s: 140.46822742474916
+>a dog. She lived in a cozy hole with her family. She liked to play outside and explore new things.
+One day, she saw something unusual in the sky. It was a big, shiny aeroplane. Lionce had never seen anything like it before. The aeroplane was strange and bright.
+Lionion's family saw her looking at the aeroplane and asked her what she was doing there. Lionwn proudly said, "I found this unusual aeroplane. It's so pretty and shiny!"
+Lionion's family smiled and told her it was the most special thing they had ever seen. She took the aeroplane and placed it in the ground.
+The next day, when Liona went outside, she saw something amazing. The aeroplane had changed! It was now a big, bright orange butterfly!
+Lionna was so happy. She watched the butterfly fly away and smiled. With her original adventure, she decided to take her butterfly home with her.
+token/s: 204.37956204379563
 
 ## Performance
 
@@ -36,6 +39,7 @@ model: `tinystories15M`, prompt: `a dog`
 |--|--|--|--|--|--|
 |0.3.0|81 token/s|osx|x86|2.2 GHz Quad-Core Intel Core i7|single thread|
 |0.3.1|140 token/s|osx|x86|2.2 GHz Quad-Core Intel Core i7|multiple thread|
+|0.4.0|204 token/s|osx|x86|2.2 GHz Quad-Core Intel Core i7|multiple thread, simd|
 
 ## Usage
 
