@@ -3,7 +3,14 @@
 
 # Portable LLM
 
-A rust library for LLM inference，which ported from [llama2.c](https://github.com/karpathy/llama2.c.git). Reading model from [gguf](https://github.com/ggerganov/ggml/blob/master/docs/gguf.md) is working in progress.
+A rust library for LLM inference，which ported from [llama2.c](https://github.com/karpathy/llama2.c.git). For learning purposes only, it is currently not available for production. 
+
+## Feature
+
+* Transformer (Currently support llama2 & gemma)
+* [GGUF](https://github.com/ggerganov/ggml/blob/master/docs/gguf.md) file format
+* SIMD (Only support x86_64 avx2, derived from [candle](https://github.com/huggingface/candle))
+* MMAP ::construction::::construction::
 
 ## Example
 
@@ -32,6 +39,7 @@ model: `tinystories15M`, prompt: `a dog`
 
 ## Usage
 
+llama 
 ```rust
 use std::{
     fs::File,
@@ -62,4 +70,51 @@ for i in iterator {
     print!("{}", i.unwrap());
     io::stdout().flush().unwrap();
 }
+```
+
+gemma
+```rust
+    let f = File::open("testdata/gemma2b").unwrap();
+    // let mmap = unsafe { Mmap::map(&f).unwrap() };
+    // let reader = io::Cursor::new(&mmap[..]);
+    let reader = BufReader::new(f);
+    let mut gf = GgufFile::from_reader(reader).unwrap();
+
+    let config = Config::from_gguf(&gf).unwrap();
+    // println!("{:?}", config.clone());
+
+    let tokenizer = Tokenizer::from_gguf(&gf).unwrap();
+
+    let mut weights = Weights::new(config.clone());
+    weights.load_from_gguf(&mut gf, config.clone()).unwrap();
+
+    let args: Vec<String> = env::args().collect();
+    let iterator = LLM::new(config, tokenizer, weights)
+        .inference(
+            args.get(1)
+                .unwrap_or(&"why the sky is blue?".to_string())
+                .to_string(),
+            0.8,
+        )
+        .unwrap();
+
+    let mut token_count = 0;
+    let start = Instant::now();
+    for (_, t) in iterator.enumerate() {
+        print!("{}", t.unwrap());
+        io::stdout().flush().unwrap();
+        token_count += 1;
+    }
+    println!(
+        "\ntoken/s: {}\n",
+        (token_count as f64 - 1.0) / start.elapsed().as_millis() as f64 * 1000.0
+```
+
+## Development
+
+```
+# build
+RUSTFLAGS='-C target-cpu=native -C target-feature=+avx2' cargo build --release
+# cross build
+RUSTFLAGS='-C target-cpu=native -C target-feature=+avx2' cargo zigbuild --release --target x86_64-unknown-linux-musl
 ```

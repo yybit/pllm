@@ -1,4 +1,7 @@
-use std::{collections::HashMap, io::Read};
+use std::{
+    collections::HashMap,
+    io::{Read, Seek},
+};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
@@ -11,6 +14,9 @@ pub struct Tokenizer {
     vocab: Vec<String>,
     scores: Vec<f32>,
     token_id_map: HashMap<String, usize>,
+
+    eos_token: u32,
+    bos_token: u32,
 }
 
 impl Tokenizer {
@@ -18,7 +24,11 @@ impl Tokenizer {
         self.vocab.get(index).cloned()
     }
 
-    pub fn from_gguf(gf: GgufFile) -> Result<Self, RlmError> {
+    pub fn vocab_size(&self) -> usize {
+        self.vocab.len()
+    }
+
+    pub fn from_gguf<R: Read + Seek>(gf: &GgufFile<R>) -> Result<Self, RlmError> {
         let md = gf.metadata();
 
         let vocab = md.get_string_array_result("tokenizer.ggml.tokens")?;
@@ -31,13 +41,15 @@ impl Tokenizer {
 
         let bos_token = md.get_u32_result("tokenizer.ggml.bos_token_id")?;
         let eos_token = md.get_u32_result("tokenizer.ggml.eos_token_id")?;
-        println!("bos: {}, eos: {}", bos_token, eos_token);
+        // println!("bos: {}, eos: {}", bos_token, eos_token);
 
         Ok(Self {
             max_token_length: 0,
             vocab,
             scores,
             token_id_map,
+            eos_token,
+            bos_token,
         })
     }
 
@@ -72,20 +84,24 @@ impl Tokenizer {
             vocab,
             scores,
             token_id_map,
+            eos_token: 0,
+            bos_token: 1,
         })
     }
 
     pub fn bpe_encode(&self, text: String) -> Result<Vec<u32>, RlmError> {
         let mut tokens = Vec::with_capacity(text.len() + 2);
-        tokens.push(1);
-        let dummy_prefix = self
-            .token_id_map
-            .get(" ")
-            .ok_or(RlmError::Other(
-                "dummy prefix ' '  not found in vocab".to_string(),
-            ))?
-            .clone();
-        tokens.push(dummy_prefix as u32);
+
+        if self.bos_token != 0 {
+            tokens.push(self.bos_token);
+        }
+
+        let text = if let Some(&dummy_prefix) = self.token_id_map.get("▁") {
+            tokens.push(dummy_prefix as u32);
+            text.replace(' ', "▁")
+        } else {
+            text
+        };
 
         for c in text.chars() {
             let id = self
@@ -127,6 +143,26 @@ impl Tokenizer {
             }
         }
 
+        // if self.eos_token != 0 {
+        //     tokens.push(self.eos_token);
+        // }
+
         Ok(tokens)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs::File, io::BufReader};
+
+    use crate::{gguf::GgufFile, Tokenizer};
+
+    #[test]
+    fn test_tokenizer_from_gguf() {
+        let f = File::open("testdata/gemma2b").unwrap();
+        let mut reader = BufReader::new(f);
+        let gguf_file = GgufFile::from_reader(&mut reader).unwrap();
+        let tokenizer = Tokenizer::from_gguf(&gguf_file).unwrap();
+        println!("{}", tokenizer.vocab_size());
     }
 }

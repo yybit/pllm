@@ -6,11 +6,14 @@ use std::{
 use byteorder::{LittleEndian, ReadBytesExt};
 use num_enum::TryFromPrimitive;
 
-use crate::errors::RlmError;
+use crate::{
+    errors::RlmError,
+    tensor::{Tensor, TensorF32, TensorQ4_0, TensorQ8_0},
+};
 
 const DEFAULT_ALIGNMENT: u32 = 32;
 
-#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[derive(Debug, Eq, PartialEq, TryFromPrimitive, Clone)]
 #[num_enum(error_type(name = RlmError, constructor = RlmError::InvalidGgmlType))]
 #[repr(u32)]
 pub enum GgmlType {
@@ -433,8 +436,9 @@ impl GgufTensorInfo {
         for _ in 0..n_dimensions {
             dimensions.push(reader.read_u64::<LittleEndian>()?);
         }
-        let typ = GgmlType::from_reader(&mut reader)?;
+        let typ: GgmlType = GgmlType::from_reader(&mut reader)?;
         let offset = reader.read_u64::<LittleEndian>()?;
+        // println!("{} {:?} {:?} {}", name.to_string(), typ, dimensions, offset);
 
         Ok(Self {
             name,
@@ -447,15 +451,17 @@ impl GgufTensorInfo {
 }
 
 #[derive(Debug)]
-pub struct GgufFile {
+pub struct GgufFile<R> {
     header: GgufHeader,
     tensor_infos: Vec<GgufTensorInfo>,
     _padding: Vec<u8>,
-    tensor_data: Vec<u8>,
+    // tensor_data: Vec<u8>,
+    tensor_data_start: u64,
+    reader: R,
 }
 
-impl GgufFile {
-    pub fn from_reader(mut reader: impl Read + Seek) -> Result<Self, RlmError> {
+impl<R: Read + Seek> GgufFile<R> {
+    pub fn from_reader(mut reader: R) -> Result<Self, RlmError> {
         let header = GgufHeader::from_reader(&mut reader)?;
         let mut tensor_infos = Vec::new();
         for _ in 0..header.tensor_count {
@@ -471,17 +477,53 @@ impl GgufFile {
         let mut _padding = vec![0; padding_size as usize];
         reader.read_exact(&mut _padding)?;
 
+        let tensor_data_start = reader.stream_position()?;
+
         Ok(Self {
             header,
             tensor_infos,
             _padding,
             // TODO: read tensor data
-            tensor_data: Vec::new(),
+            // tensor_data: Vec::new(),
+            tensor_data_start,
+            reader,
         })
     }
 
     pub fn metadata(&self) -> &Metadata {
         &self.header.metadata
+    }
+
+    pub fn get_tensor(&mut self, name: &str) -> Result<Tensor, RlmError> {
+        let i = self
+            .tensor_infos
+            .iter()
+            .find(|i| i.name.to_string() == name.to_string())
+            .ok_or(RlmError::TensorNotFound(name.to_string()))?;
+
+        self.reader
+            .seek(std::io::SeekFrom::Start(self.tensor_data_start + i.offset))?;
+
+        let n = i.dimensions.iter().product::<u64>() as usize;
+
+        match &i.typ {
+            GgmlType::F32 => {
+                let mut t = TensorF32::new(n);
+                t.from_reader(&mut self.reader)?;
+                Ok(Tensor::F32(t))
+            }
+            GgmlType::Q4_0 => {
+                let mut t = TensorQ4_0::new(n);
+                t.from_reader(&mut self.reader)?;
+                Ok(Tensor::Q4_0(t))
+            }
+            GgmlType::Q8_0 => {
+                let mut t = TensorQ8_0::new(n);
+                t.from_reader(&mut self.reader)?;
+                Ok(Tensor::Q8_0(t))
+            }
+            t => Err(RlmError::GgmlTypeNotSupport(t.clone())),
+        }
     }
 }
 
@@ -493,15 +535,14 @@ mod tests {
 
     #[test]
     fn test_gguf_file() {
-        let f =
-            File::open("testdata/c1864a5eb19305c40519da12cc543519e48a0697ecd30e15d5ac228644957d12")
-                .unwrap();
+        let f = File::open("testdata/gemma2b").unwrap();
         let mut reader = BufReader::new(f);
         let gguf_file = GgufFile::from_reader(&mut reader).unwrap();
         println!(
-            "{:?} {:?} {:?}",
+            "{:?} {:?} {:?} {:?}",
             gguf_file.metadata().get_string("general.architecture"),
             gguf_file.metadata().get_string("general.name"),
+            gguf_file.metadata().get_u32("general.quantization_version"),
             gguf_file.metadata().0.keys(),
         );
     }

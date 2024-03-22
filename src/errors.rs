@@ -2,6 +2,8 @@ use std::io;
 
 use thiserror::Error;
 
+use crate::gguf::GgmlType;
+
 #[derive(Error, Debug)]
 pub enum RlmError {
     #[error(transparent)]
@@ -18,4 +20,10 @@ pub enum RlmError {
 
     #[error("Invalid gguf metadata key: {0}")]
     InvalidGgufMetadataKey(String),
+
+    #[error("Tensor not found: {0}")]
+    TensorNotFound(String),
+
+    #[error("Ggml type not support: {0:?}")]
+    GgmlTypeNotSupport(GgmlType),
 }

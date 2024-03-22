@@ -1,7 +1,10 @@
-use std::io::Read;
+use std::io::{Read, Seek};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
+use crate::gguf::GgmlType;
+use crate::tensor::{Tensor, TensorF32, TensorQ8_0};
+use crate::util::FloatVec;
 use crate::{errors::RlmError, gguf};
 
 #[derive(Debug, Clone)]
@@ -20,9 +23,15 @@ pub struct Config {
     pub vocab_size: u32,
     /// max sequence length
     pub(crate) seq_len: u32,
+
+    arch: String,
 }
 
 impl Config {
+    pub fn is_gemma(&self) -> bool {
+        self.arch.eq("gemma")
+    }
+
     pub fn from_reader(mut reader: impl Read) -> Result<Self, RlmError> {
         let dim = reader.read_u32::<LittleEndian>()?;
         let hidden_dim = reader.read_u32::<LittleEndian>()?;
@@ -40,23 +49,29 @@ impl Config {
             n_kv_heads,
             vocab_size,
             seq_len,
+            arch: "".to_string(),
         })
     }
 
-    pub fn from_gguf(gf: gguf::GgufFile) -> Result<Self, RlmError> {
+    pub fn from_gguf<R: Read + Seek>(gf: &gguf::GgufFile<R>) -> Result<Self, RlmError> {
         let md = gf.metadata();
 
-        let dim = md.get_u32_result("llama.embedding_length")?;
-        let hidden_dim = md.get_u32_result("llama.feed_forward_length")?;
-        let n_layers = md.get_u32_result("llama.block_count")?;
-        let n_heads = md.get_u32_result("llama.attention.head_count")?;
-        let n_kv_heads = md.get_u32_result("llama.attention.head_count_kv")?;
-        let vocab_size = md.get_u32_result("tokenizer.ggml.tokens")?;
-        let seq_len = md.get_u32_result("llama.context_length")?;
+        let arch = md.get_string_result("general.architecture")?;
 
-        let norm_rms_eps = md.get_f32_result("llama.attention.layer_norm_rms_epsilon")?;
-        let rope_dim = md.get_u32_result("llama.rope.dimension_count")?;
-        println!("rms eps: {}, rope dim: {}", norm_rms_eps, rope_dim);
+        let dim = md.get_u32_result(&format!("{}.embedding_length", arch))?;
+        let hidden_dim = md.get_u32_result(&format!("{}.feed_forward_length", arch))?;
+        let n_layers = md.get_u32_result(&format!("{}.block_count", arch))?;
+        let n_heads = md.get_u32_result(&format!("{}.attention.head_count", arch))?;
+        let n_kv_heads = md.get_u32_result(&format!("{}.attention.head_count_kv", arch))?;
+        let vocab_size = md.get_string_array_result("tokenizer.ggml.tokens")?.len() as u32;
+        let seq_len = md.get_u32_result(&format!("{}.context_length", arch))?;
+
+        let norm_rms_eps =
+            md.get_f32_result(&format!("{}.attention.layer_norm_rms_epsilon", arch))?;
+        let rope_dim = md
+            .get_u32_result(&format!("{}.rope.dimension_count", arch))
+            .unwrap_or(0);
+        // println!("rms eps: {}, rope dim: {}", norm_rms_eps, rope_dim);
 
         Ok(Self {
             dim,
@@ -66,6 +81,7 @@ impl Config {
             n_kv_heads,
             vocab_size,
             seq_len,
+            arch,
         })
     }
     pub fn header_size(&self) -> u32 {
@@ -84,40 +100,59 @@ impl Config {
 
 pub struct Weights {
     /// vocab_size * dim
-    pub(crate) token_embedding_table: Vec<f32>,
+    pub(crate) token_embedding_table: Tensor,
+    /// n_layers * dim
     pub(crate) rms_att_weight: Vec<f32>,
+    /// n_layers * dim
     pub(crate) rms_ffn_weight: Vec<f32>,
     /// n_layers * dim * dim
-    pub(crate) wq: Vec<f32>,
+    pub(crate) wq: Vec<Tensor>,
     /// n_layers * dim * dim
-    pub(crate) wk: Vec<f32>,
+    pub(crate) wk: Vec<Tensor>,
     /// n_layers * dim * dim
-    pub(crate) wv: Vec<f32>,
+    pub(crate) wv: Vec<Tensor>,
     /// n_layers * dim * dim
-    pub(crate) wo: Vec<f32>,
-    pub(crate) w1: Vec<f32>,
-    pub(crate) w2: Vec<f32>,
-    pub(crate) w3: Vec<f32>,
+    pub(crate) wo: Vec<Tensor>,
+
+    /// ffn gate: n_layers * dim * hidden_dim
+    pub(crate) w1: Vec<Tensor>,
+    /// ffn down: n_layers * hidden_dim * dim
+    pub(crate) w2: Vec<Tensor>,
+    /// ffn up: n_layers * dim * hidden_dim
+    pub(crate) w3: Vec<Tensor>,
+    /// (dim, )
     pub(crate) rms_final_weight: Vec<f32>,
     // pub(crate) freq_cis_real: Vec<f32>,
     // pub(crate) freq_cis_imag: Vec<f32>,
+    config: Config,
+
+    quantization_version: GgmlType,
 }
 
 impl Weights {
     pub fn new(c: Config) -> Self {
-        let token_embedding_table = vec![0_f32; (c.vocab_size * c.dim) as usize];
+        // let token_embedding_table = vec![0_f32; (c.vocab_size * c.dim) as usize];
+        let token_embedding_table = Tensor::None;
 
         let rms_att_weight = vec![0_f32; (c.n_layers * c.dim) as usize];
         let rms_ffn_weight = rms_att_weight.clone();
 
-        let wq = vec![0_f32; (c.n_layers * c.dim * c.dim) as usize];
+        // let wq = vec![0_f32; (c.n_layers * c.dim * c.dim) as usize];
+        // let wo = wq.clone();
+
+        // let wk = vec![0_f32; (c.n_layers * c.dim * c.kv_dim()) as usize];
+        // let wv = wk.clone();
+
+        // let w1 = vec![0_f32; (c.n_layers * c.dim * c.hidden_dim) as usize];
+        // let w2 = w1.clone();
+        // let w3 = w1.clone();
+        let wq = vec![Tensor::None; c.n_layers as usize];
+        let wo = wq.clone();
         let wk = wq.clone();
         let wv = wq.clone();
-        let wo = wq.clone();
-
-        let w1 = vec![0_f32; (c.n_layers * c.dim * c.hidden_dim) as usize];
-        let w2 = w1.clone();
-        let w3 = w1.clone();
+        let w1 = wq.clone();
+        let w2 = wq.clone();
+        let w3 = wq.clone();
 
         let rms_final_weight = vec![0_f32; c.dim as usize];
         // let freq_cis_real = vec![0_f32; (c.seq_len * (c.dim / c.n_heads) / 2) as usize];
@@ -137,24 +172,139 @@ impl Weights {
             rms_final_weight,
             // freq_cis_real,
             // freq_cis_imag,
+            config: c,
+            quantization_version: GgmlType::F32,
         }
     }
 
     pub fn load_data(&mut self, mut reader: impl Read) -> Result<(), RlmError> {
-        reader.read_f32_into::<LittleEndian>(&mut self.token_embedding_table)?;
+        let mut t = TensorF32::new((self.config.vocab_size * self.config.dim) as usize);
+        t.from_reader(&mut reader)?;
+        self.token_embedding_table = Tensor::F32(t);
+
         reader.read_f32_into::<LittleEndian>(&mut self.rms_att_weight)?;
-        reader.read_f32_into::<LittleEndian>(&mut self.wq)?;
-        reader.read_f32_into::<LittleEndian>(&mut self.wk)?;
-        reader.read_f32_into::<LittleEndian>(&mut self.wv)?;
-        reader.read_f32_into::<LittleEndian>(&mut self.wo)?;
+
+        let dim = self.config.dim as usize;
+        let hidden_dim = self.config.hidden_dim as usize;
+        let kv_dim = self.config.kv_dim() as usize;
+
+        for x in self.wq.iter_mut() {
+            let mut t = TensorF32::new(dim * dim);
+            t.from_reader(&mut reader)?;
+            *x = Tensor::F32(t);
+        }
+
+        for x in self.wk.iter_mut() {
+            let mut t = TensorF32::new(dim * kv_dim);
+            t.from_reader(&mut reader)?;
+            *x = Tensor::F32(t);
+        }
+
+        for x in self.wv.iter_mut() {
+            let mut t = TensorF32::new(dim * kv_dim);
+            t.from_reader(&mut reader)?;
+            *x = Tensor::F32(t);
+        }
+
+        for x in self.wo.iter_mut() {
+            let mut t = TensorF32::new(dim * dim);
+            t.from_reader(&mut reader)?;
+            *x = Tensor::F32(t);
+        }
+
+        // reader.read_f32_into::<LittleEndian>(&mut self.wq)?;
+        // reader.read_f32_into::<LittleEndian>(&mut self.wk)?;
+        // reader.read_f32_into::<LittleEndian>(&mut self.wv)?;
+        // reader.read_f32_into::<LittleEndian>(&mut self.wo)?;
         reader.read_f32_into::<LittleEndian>(&mut self.rms_ffn_weight)?;
-        reader.read_f32_into::<LittleEndian>(&mut self.w1)?;
-        reader.read_f32_into::<LittleEndian>(&mut self.w2)?;
-        reader.read_f32_into::<LittleEndian>(&mut self.w3)?;
+
+        for x in self.w1.iter_mut() {
+            let mut t = TensorF32::new(dim * hidden_dim);
+            t.from_reader(&mut reader)?;
+            *x = Tensor::F32(t);
+        }
+
+        for x in self.w2.iter_mut() {
+            let mut t = TensorF32::new(dim * hidden_dim);
+            t.from_reader(&mut reader)?;
+            *x = Tensor::F32(t);
+        }
+
+        for x in self.w3.iter_mut() {
+            let mut t = TensorF32::new(dim * hidden_dim);
+            t.from_reader(&mut reader)?;
+            *x = Tensor::F32(t);
+        }
+        // reader.read_f32_into::<LittleEndian>(&mut self.w1)?;
+        // reader.read_f32_into::<LittleEndian>(&mut self.w2)?;
+        // reader.read_f32_into::<LittleEndian>(&mut self.w3)?;
         reader.read_f32_into::<LittleEndian>(&mut self.rms_final_weight)?;
         // reader.read_f32_into::<LittleEndian>(&mut self.freq_cis_real)?;
         // reader.read_f32_into::<LittleEndian>(&mut self.freq_cis_imag)?;
 
         Ok(())
+    }
+
+    pub fn load_from_gguf<R: Read + Seek>(
+        &mut self,
+        gf: &mut gguf::GgufFile<R>,
+        c: Config,
+    ) -> Result<(), RlmError> {
+        let qv = gf
+            .metadata()
+            .get_u32_result("general.quantization_version")?;
+        self.quantization_version = GgmlType::try_from(qv)?;
+
+        self.token_embedding_table = gf.get_tensor("token_embd.weight")?;
+
+        for i in 0..c.n_layers as usize {
+            self.wq[i] = gf.get_tensor(&format!("blk.{}.attn_q.weight", i))?;
+            self.wk[i] = gf.get_tensor(&format!("blk.{}.attn_k.weight", i))?;
+            self.wv[i] = gf.get_tensor(&format!("blk.{}.attn_v.weight", i))?;
+            self.wo[i] = gf.get_tensor(&format!("blk.{}.attn_output.weight", i))?;
+            self.w1[i] = gf.get_tensor(&format!("blk.{}.ffn_gate.weight", i))?;
+            self.w2[i] = gf.get_tensor(&format!("blk.{}.ffn_down.weight", i))?;
+            self.w3[i] = gf.get_tensor(&format!("blk.{}.ffn_up.weight", i))?;
+
+            gf.get_tensor(&format!("blk.{}.attn_norm.weight", i))?
+                .dequantize(self.rms_att_weight.get_mut_chunk(c.dim, i as u32), 0);
+
+            gf.get_tensor(&format!("blk.{}.ffn_norm.weight", i))?
+                .dequantize(self.rms_ffn_weight.get_mut_chunk(c.dim, i as u32), 0);
+        }
+
+        gf.get_tensor("output_norm.weight")?
+            .dequantize(&mut self.rms_final_weight, 0);
+        Ok(())
+    }
+
+    pub fn make_quantize_tensor(&self, size: usize) -> Tensor {
+        match self.quantization_version {
+            GgmlType::Q4_0 | GgmlType::Q8_0 => Tensor::Q8_0(TensorQ8_0::new(size)),
+            _ => Tensor::None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        fs::File,
+        io::{BufReader, Read, Seek},
+    };
+
+    use crate::{gguf::GgufFile, Config};
+
+    fn get_gguf() -> GgufFile<BufReader<File>> {
+        let f = File::open("testdata/gemma2b").unwrap();
+        let reader = BufReader::new(f);
+        GgufFile::from_reader(reader).unwrap()
+    }
+
+    #[test]
+    fn test_config_from_gguf() {
+        let gf = get_gguf();
+        let config = Config::from_gguf(&gf).unwrap();
+        println!("{:?}", config);
     }
 }

@@ -1,7 +1,10 @@
-use std::cmp;
+use std::{
+    cmp,
+    io::{Read, Seek},
+};
 
 use crate::{
-    errors::RlmError, transformer::Transformer, util::NumVecExt, Config, Tokenizer, Weights,
+    errors::RlmError, transformer::Transformer, util::FloatVec, Config, Tokenizer, Weights,
 };
 
 const DEFAULT_STEPS: u32 = 256;
@@ -16,6 +19,10 @@ pub struct LLM {
 impl LLM {
     pub fn new(config: Config, tokenizer: Tokenizer, weights: Weights) -> Self {
         let transformer = Transformer::new(config.clone());
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build_global()
+            .unwrap();
 
         Self {
             config,
@@ -54,9 +61,14 @@ pub struct InferenceIterator {
 }
 
 impl InferenceIterator {
-    pub fn new(llm: LLM, prompt_tokens: Vec<u32>, steps: u32, temperature: f32) -> Self {
+    pub fn new(
+        llm: LLM,
+        prompt_tokens: Vec<u32>,
+        steps: u32,
+        temperature: f32,
+    ) -> InferenceIterator {
         let next_token = prompt_tokens[0];
-        Self {
+        InferenceIterator {
             llm,
             prompt_tokens,
             steps,
@@ -99,7 +111,7 @@ impl Iterator for InferenceIterator {
         };
 
         let token_str = match self.llm.tokenizer.get_token(next_token as usize) {
-            Some(t) => t,
+            Some(t) => t.replace('▁', " "),
             None => {
                 return Some(Err(RlmError::Other(format!(
                     "token not found, idx={}",
@@ -127,7 +139,10 @@ mod tests {
         time::Instant,
     };
 
-    use crate::llm::{Weights, LLM};
+    use crate::{
+        gguf::GgufFile,
+        llm::{Weights, LLM},
+    };
 
     use super::{Config, Tokenizer};
 
@@ -151,16 +166,45 @@ mod tests {
         let iterator = LLM::new(config, tokenizer, weights)
             .inference("a dog".to_string(), 0.8)
             .unwrap();
-        let mut token_count = 0;
+        let steps = iterator.steps;
         let start = Instant::now();
-        for (i, t) in iterator.enumerate() {
-            print!("{}", t.unwrap());
+        for i in iterator {
+            print!("{}", i.unwrap());
             io::stdout().flush().unwrap();
-            token_count += 1;
         }
         println!(
             "\ntoken/s: {}\n",
-            (token_count as u64 - 1) / start.elapsed().as_secs()
+            (steps as u64 - 1) / start.elapsed().as_secs()
+        );
+    }
+
+    #[test]
+    fn test_gguf() {
+        let f = File::open("testdata/gemma2b").unwrap();
+        let reader = BufReader::new(f);
+        let mut gf = GgufFile::from_reader(reader).unwrap();
+
+        let config = Config::from_gguf(&gf).unwrap();
+        println!("{:?}", config.clone());
+
+        let tokenizer = Tokenizer::from_gguf(&gf).unwrap();
+        println!("{}", tokenizer.max_token_length);
+
+        let mut weights = Weights::new(config.clone());
+        weights.load_from_gguf(&mut gf, config.clone()).unwrap();
+
+        let iterator = LLM::new(config, tokenizer, weights)
+            .inference("a dog".to_string(), 0.8)
+            .unwrap();
+        let steps = iterator.steps;
+        let start = Instant::now();
+        for i in iterator {
+            print!("{}", i.unwrap());
+            io::stdout().flush().unwrap();
+        }
+        println!(
+            "\ntoken/s: {}\n",
+            (steps as u64 - 1) / start.elapsed().as_secs()
         );
     }
 }
