@@ -18,7 +18,7 @@ A rust library for LLM inference，which ported from [llama2.c](https://github.c
 # Download testdata
 make testdata
 # Run example in release mode
-RUSTFLAGS='-C target-cpu=native -C target-feature=+avx2' cargo run --example gemma --release
+RUSTFLAGS='-C target-cpu=native -C target-feature=+avx2' cargo run --example llama2c --release
 ```
 
 output:
