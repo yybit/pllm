@@ -5,7 +5,7 @@ use thiserror::Error;
 use crate::gguf::GgmlType;
 
 #[derive(Error, Debug)]
-pub enum RlmError {
+pub enum PllmError {
     #[error(transparent)]
     Io(#[from] io::Error),
 

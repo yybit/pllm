@@ -1,6 +1,6 @@
 [package]
 name = "pllm"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 authors = ["yybit <yybit2@gmail.com>"]
 license = "Apache-2.0"
@@ -21,3 +21,21 @@ num-traits = "0.2.18"
 
 rayon = "1.9.0"
 half = "2.4.0"
+
+[dev-dependencies]
+# memmap2 = "0.9.4"
+# ndarray = { version = "0.15.6", features = ["blas"] }
+# blas-src = { version = "0.10.0", features = ["openblas"] }
+# openblas-src = { version = "0.10", features = ["cblas"] }
+# blas-src = { version = "0.10.0", default-features = false, features = [
+#     "accelerate",
+# ] }
+
+[[example]]
+name = "dot"
+
+[[example]]
+name = "llama2c"
+
+[[example]]
+name = "gemma"

@@ -7,14 +7,14 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use num_enum::TryFromPrimitive;
 
 use crate::{
-    errors::RlmError,
+    errors::PllmError,
     tensor::{Tensor, TensorF32, TensorQ4_0, TensorQ8_0},
 };
 
 const DEFAULT_ALIGNMENT: u32 = 32;
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive, Clone)]
-#[num_enum(error_type(name = RlmError, constructor = RlmError::InvalidGgmlType))]
+#[num_enum(error_type(name = PllmError, constructor = PllmError::InvalidGgmlType))]
 #[repr(u32)]
 pub enum GgmlType {
     F32 = 0,
@@ -38,7 +38,7 @@ pub enum GgmlType {
 }
 
 impl GgmlType {
-    fn from_reader(mut reader: impl Read) -> Result<Self, RlmError> {
+    fn from_reader(mut reader: impl Read) -> Result<Self, PllmError> {
         let e_num = reader.read_u32::<LittleEndian>()?;
         let e = Self::try_from(e_num)?;
 
@@ -47,7 +47,7 @@ impl GgmlType {
 }
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive, Clone)]
-#[num_enum(error_type(name = RlmError, constructor = RlmError::InvalidGgufMetadataValueType))]
+#[num_enum(error_type(name = PllmError, constructor = PllmError::InvalidGgufMetadataValueType))]
 #[repr(u32)]
 pub enum GgufMetadataValueType {
     Uint8 = 0,
@@ -66,7 +66,7 @@ pub enum GgufMetadataValueType {
 }
 
 impl GgufMetadataValueType {
-    fn from_reader(mut reader: impl Read) -> Result<Self, RlmError> {
+    fn from_reader(mut reader: impl Read) -> Result<Self, PllmError> {
         let e_num = reader.read_u32::<LittleEndian>()?;
         let e = Self::try_from(e_num)?;
 
@@ -81,7 +81,7 @@ pub struct GgufString {
 }
 
 impl GgufString {
-    pub fn from_reader(mut reader: impl Read) -> Result<Self, RlmError> {
+    pub fn from_reader(mut reader: impl Read) -> Result<Self, PllmError> {
         let len = reader.read_u64::<LittleEndian>()?;
         let mut data = vec![0; len as usize];
         reader.read_exact(&mut data)?;
@@ -115,7 +115,7 @@ pub enum GgufArray {
 }
 
 impl GgufArray {
-    pub fn from_reader(mut reader: impl Read) -> Result<Self, RlmError> {
+    pub fn from_reader(mut reader: impl Read) -> Result<Self, PllmError> {
         let typ = GgufMetadataValueType::from_reader(&mut reader)?;
         let len = reader.read_u64::<LittleEndian>()?;
 
@@ -185,7 +185,7 @@ impl GgufArray {
                 Self::String(values)
             }
             GgufMetadataValueType::Array => {
-                return Err(RlmError::Other("not support nest array".to_string()));
+                return Err(PllmError::Other("not support nest array".to_string()));
                 // let mut values = Vec::new();
                 // for _ in 0..len {
                 //     values.push(GgufArray::from_reader(&mut reader)?);
@@ -240,7 +240,7 @@ impl GgufMetadataValue {
     pub fn from_reader(
         mut reader: impl Read,
         typ: GgufMetadataValueType,
-    ) -> Result<Self, RlmError> {
+    ) -> Result<Self, PllmError> {
         let v = match typ {
             GgufMetadataValueType::Uint8 => Self::Uint8(reader.read_u8()?),
             GgufMetadataValueType::Int8 => Self::Int8(reader.read_i8()?),
@@ -319,7 +319,7 @@ pub struct GgufMetadataKv {
 }
 
 impl GgufMetadataKv {
-    pub fn from_reader(mut reader: impl Read) -> Result<Self, RlmError> {
+    pub fn from_reader(mut reader: impl Read) -> Result<Self, PllmError> {
         let key = GgufString::from_reader(&mut reader)?;
         let typ = GgufMetadataValueType::from_reader(&mut reader)?;
         let value = GgufMetadataValue::from_reader(reader, typ.clone())?;
@@ -336,54 +336,54 @@ impl Metadata {
         self.0.get(key).map(|v| v.as_string()).unwrap_or(None)
     }
 
-    pub fn get_string_result(&self, key: &str) -> Result<String, RlmError> {
+    pub fn get_string_result(&self, key: &str) -> Result<String, PllmError> {
         self.get_string(key)
-            .ok_or(RlmError::InvalidGgufMetadataKey(key.to_string()))
+            .ok_or(PllmError::InvalidGgufMetadataKey(key.to_string()))
     }
 
     pub fn get_u32(&self, key: &str) -> Option<u32> {
         self.0.get(key).map(|v| v.as_u32()).unwrap_or(None)
     }
 
-    pub fn get_u32_result(&self, key: &str) -> Result<u32, RlmError> {
+    pub fn get_u32_result(&self, key: &str) -> Result<u32, PllmError> {
         self.get_u32(key)
-            .ok_or(RlmError::InvalidGgufMetadataKey(key.to_string()))
+            .ok_or(PllmError::InvalidGgufMetadataKey(key.to_string()))
     }
 
     pub fn get_u64(&self, key: &str) -> Option<u64> {
         self.0.get(key).map(|v| v.as_u64()).unwrap_or(None)
     }
 
-    pub fn get_u64_result(&self, key: &str) -> Result<u64, RlmError> {
+    pub fn get_u64_result(&self, key: &str) -> Result<u64, PllmError> {
         self.get_u64(key)
-            .ok_or(RlmError::InvalidGgufMetadataKey(key.to_string()))
+            .ok_or(PllmError::InvalidGgufMetadataKey(key.to_string()))
     }
 
     pub fn get_f32(&self, key: &str) -> Option<f32> {
         self.0.get(key).map(|v| v.as_f32()).unwrap_or(None)
     }
 
-    pub fn get_f32_result(&self, key: &str) -> Result<f32, RlmError> {
+    pub fn get_f32_result(&self, key: &str) -> Result<f32, PllmError> {
         self.get_f32(key)
-            .ok_or(RlmError::InvalidGgufMetadataKey(key.to_string()))
+            .ok_or(PllmError::InvalidGgufMetadataKey(key.to_string()))
     }
 
     pub fn get_f32_array(&self, key: &str) -> Option<Vec<f32>> {
         self.0.get(key).map(|v| v.as_f32_array()).unwrap_or(None)
     }
 
-    pub fn get_f32_array_result(&self, key: &str) -> Result<Vec<f32>, RlmError> {
+    pub fn get_f32_array_result(&self, key: &str) -> Result<Vec<f32>, PllmError> {
         self.get_f32_array(key)
-            .ok_or(RlmError::InvalidGgufMetadataKey(key.to_string()))
+            .ok_or(PllmError::InvalidGgufMetadataKey(key.to_string()))
     }
 
     pub fn get_string_array(&self, key: &str) -> Option<Vec<String>> {
         self.0.get(key).map(|v| v.as_string_array()).unwrap_or(None)
     }
 
-    pub fn get_string_array_result(&self, key: &str) -> Result<Vec<String>, RlmError> {
+    pub fn get_string_array_result(&self, key: &str) -> Result<Vec<String>, PllmError> {
         self.get_string_array(key)
-            .ok_or(RlmError::InvalidGgufMetadataKey(key.to_string()))
+            .ok_or(PllmError::InvalidGgufMetadataKey(key.to_string()))
     }
 }
 
@@ -398,7 +398,7 @@ pub struct GgufHeader {
 }
 
 impl GgufHeader {
-    pub fn from_reader(mut reader: impl Read) -> Result<Self, RlmError> {
+    pub fn from_reader(mut reader: impl Read) -> Result<Self, PllmError> {
         let magic = reader.read_u32::<LittleEndian>()?;
         let version = reader.read_u32::<LittleEndian>()?;
         let tensor_count = reader.read_u64::<LittleEndian>()?;
@@ -429,7 +429,7 @@ pub struct GgufTensorInfo {
 }
 
 impl GgufTensorInfo {
-    pub fn from_reader(mut reader: impl Read) -> Result<Self, RlmError> {
+    pub fn from_reader(mut reader: impl Read) -> Result<Self, PllmError> {
         let name = GgufString::from_reader(&mut reader)?;
         let n_dimensions = reader.read_u32::<LittleEndian>()?;
         let mut dimensions = Vec::new();
@@ -461,7 +461,7 @@ pub struct GgufFile<R> {
 }
 
 impl<R: Read + Seek> GgufFile<R> {
-    pub fn from_reader(mut reader: R) -> Result<Self, RlmError> {
+    pub fn from_reader(mut reader: R) -> Result<Self, PllmError> {
         let header = GgufHeader::from_reader(&mut reader)?;
         let mut tensor_infos = Vec::new();
         for _ in 0..header.tensor_count {
@@ -494,12 +494,12 @@ impl<R: Read + Seek> GgufFile<R> {
         &self.header.metadata
     }
 
-    pub fn get_tensor(&mut self, name: &str) -> Result<Tensor, RlmError> {
+    pub fn get_tensor(&mut self, name: &str) -> Result<Tensor, PllmError> {
         let i = self
             .tensor_infos
             .iter()
             .find(|i| i.name.to_string() == name.to_string())
-            .ok_or(RlmError::TensorNotFound(name.to_string()))?;
+            .ok_or(PllmError::TensorNotFound(name.to_string()))?;
 
         self.reader
             .seek(std::io::SeekFrom::Start(self.tensor_data_start + i.offset))?;
@@ -522,7 +522,7 @@ impl<R: Read + Seek> GgufFile<R> {
                 t.from_reader(&mut self.reader)?;
                 Ok(Tensor::Q8_0(t))
             }
-            t => Err(RlmError::GgmlTypeNotSupport(t.clone())),
+            t => Err(PllmError::GgmlTypeNotSupport(t.clone())),
         }
     }
 }
@@ -535,7 +535,7 @@ mod tests {
 
     #[test]
     fn test_gguf_file() {
-        let f = File::open("testdata/gemma2b").unwrap();
+        let f = File::open("testdata/llama2").unwrap();
         let mut reader = BufReader::new(f);
         let gguf_file = GgufFile::from_reader(&mut reader).unwrap();
         println!(
@@ -545,5 +545,8 @@ mod tests {
             gguf_file.metadata().get_u32("general.quantization_version"),
             gguf_file.metadata().0.keys(),
         );
+        for info in gguf_file.tensor_infos {
+            println!("{} {:?}", info.name.to_string(), info.typ);
+        }
     }
 }

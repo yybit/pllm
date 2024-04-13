@@ -5,7 +5,7 @@ use std::{
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::{errors::RlmError, gguf::GgufFile};
+use crate::{errors::PllmError, gguf::GgufFile};
 
 #[derive(Debug)]
 pub struct Tokenizer {
@@ -15,8 +15,8 @@ pub struct Tokenizer {
     scores: Vec<f32>,
     token_id_map: HashMap<String, usize>,
 
-    eos_token: u32,
-    bos_token: u32,
+    pub(crate) eos_token: u32,
+    pub(crate) bos_token: u32,
 }
 
 impl Tokenizer {
@@ -28,7 +28,7 @@ impl Tokenizer {
         self.vocab.len()
     }
 
-    pub fn from_gguf<R: Read + Seek>(gf: &GgufFile<R>) -> Result<Self, RlmError> {
+    pub fn from_gguf<R: Read + Seek>(gf: &GgufFile<R>) -> Result<Self, PllmError> {
         let md = gf.metadata();
 
         let vocab = md.get_string_array_result("tokenizer.ggml.tokens")?;
@@ -41,7 +41,7 @@ impl Tokenizer {
 
         let bos_token = md.get_u32_result("tokenizer.ggml.bos_token_id")?;
         let eos_token = md.get_u32_result("tokenizer.ggml.eos_token_id")?;
-        // println!("bos: {}, eos: {}", bos_token, eos_token);
+        println!("bos: {}, eos: {}", bos_token, eos_token);
 
         Ok(Self {
             max_token_length: 0,
@@ -53,7 +53,7 @@ impl Tokenizer {
         })
     }
 
-    pub fn from_reader(vocab_size: usize, mut reader: impl Read) -> Result<Self, RlmError> {
+    pub fn from_reader(vocab_size: usize, mut reader: impl Read) -> Result<Self, PllmError> {
         let max_token_length = reader.read_u32::<LittleEndian>()?;
 
         let mut vocab = Vec::with_capacity(vocab_size);
@@ -89,7 +89,7 @@ impl Tokenizer {
         })
     }
 
-    pub fn bpe_encode(&self, text: String) -> Result<Vec<u32>, RlmError> {
+    pub fn bpe_encode(&self, text: String) -> Result<Vec<u32>, PllmError> {
         let mut tokens = Vec::with_capacity(text.len() + 2);
 
         if self.bos_token != 0 {
@@ -107,7 +107,7 @@ impl Tokenizer {
             let id = self
                 .token_id_map
                 .get(&c.to_string())
-                .ok_or(RlmError::Other(format!("{} not found in vocab", c)))?
+                .ok_or(PllmError::Other(format!("{} not found in vocab", c)))?
                 .clone();
             tokens.push(id as u32);
         }

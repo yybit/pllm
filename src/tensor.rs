@@ -11,13 +11,13 @@ use half::f16;
 use rayon::prelude::*;
 
 use crate::quant::*;
-use crate::{avx::vec_dot_q8_0_q8_0, errors::RlmError};
+use crate::{avx::vec_dot_q8_0_q8_0, errors::PllmError};
 
 #[derive(Debug, Clone)]
 pub struct TensorQ4_0(Vec<BlockQ4_0>);
 
 impl TensorQ4_0 {
-    pub fn from_reader(&mut self, mut reader: impl Read) -> Result<(), RlmError> {
+    pub fn from_reader(&mut self, mut reader: impl Read) -> Result<(), PllmError> {
         let mut deltas_buf = [0; 2];
         let mut quants_buf = [0u8; Q4_0_GROUP_SIZE / 2];
 
@@ -133,7 +133,7 @@ impl TensorQ4_0 {
 pub struct TensorQ8_0(Vec<BlockQ8_0>);
 
 impl TensorQ8_0 {
-    pub fn from_reader(&mut self, mut reader: impl Read) -> Result<(), RlmError> {
+    pub fn from_reader(&mut self, mut reader: impl Read) -> Result<(), PllmError> {
         let mut deltas_buf = [0; 2];
         let mut quants_buf = [0i8; Q8_0_GROUP_SIZE];
 
@@ -360,7 +360,7 @@ impl TensorQ8_0 {
 pub struct TensorF32(Vec<f32>);
 
 impl TensorF32 {
-    pub fn from_reader(&mut self, mut reader: impl Read) -> Result<(), RlmError> {
+    pub fn from_reader(&mut self, mut reader: impl Read) -> Result<(), PllmError> {
         reader.read_f32_into::<LittleEndian>(&mut self.0)?;
 
         Ok(())

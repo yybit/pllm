@@ -1,21 +1,21 @@
-use std::time::Instant;
 use std::{
     fs::File,
     io::{self, BufReader, Write},
+    time::Instant,
 };
 
 use pllm::{Config, Tokenizer, Weights, LLM};
 
 fn main() {
-    let f = File::open("../testdata/stories15M.bin").unwrap();
+    let f = File::open("testdata/stories15M.bin").unwrap();
     let mut reader = BufReader::new(f);
     let config = Config::from_reader(&mut reader).unwrap();
-    // println!("{:?}", config);
+    println!("{:?}", config);
 
     let mut weights = Weights::new(config.clone());
     weights.load_data(&mut reader).unwrap();
 
-    let tokenizer_file = File::open("../testdata/tokenizer.bin").unwrap();
+    let tokenizer_file = File::open("testdata/tokenizer.bin").unwrap();
     let tokenizer_reader = BufReader::new(tokenizer_file);
 
     let tokenizer = Tokenizer::from_reader(config.vocab_size as usize, tokenizer_reader).unwrap();
@@ -23,10 +23,9 @@ fn main() {
     let iterator = LLM::new(config, tokenizer, weights)
         .inference("a dog".to_string(), 0.8)
         .unwrap();
-
     let mut token_count = 0;
     let start = Instant::now();
-    for (i, t) in iterator.enumerate() {
+    for (_, t) in iterator.enumerate() {
         print!("{}", t.unwrap());
         io::stdout().flush().unwrap();
         token_count += 1;

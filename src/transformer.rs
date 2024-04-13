@@ -1,5 +1,5 @@
 use crate::{
-    errors::RlmError,
+    errors::PllmError,
     tensor::{F32TensorExt, Tensor},
     util::FloatVec,
     Config, Weights,
@@ -101,6 +101,8 @@ pub struct Layer {
     heads: Vec<Head>,
     header_size: u32,
     kv_dim: u32,
+    norm_rms_eps: f32,
+    rope_dim: u32,
 }
 impl Layer {
     pub fn new(c: &Config) -> Self {
@@ -128,6 +130,8 @@ impl Layer {
             heads,
             header_size: c.header_size(),
             kv_dim: c.kv_dim(),
+            norm_rms_eps: c.norm_rms_eps,
+            rope_dim: c.rope_dim,
         }
     }
     pub fn forward(
@@ -146,12 +150,12 @@ impl Layer {
         xb_q: &mut Tensor,
         hb_q: &mut Tensor,
         is_gemma: bool,
-    ) -> Result<(), RlmError> {
+    ) -> Result<(), PllmError> {
         let k = self.k.get_mut(pos);
         let v = self.v.get_mut(pos);
 
         // attention rmsnorm
-        self.xb.rms_norm(x, rms_att_weight);
+        self.xb.rms_norm(x, rms_att_weight, self.norm_rms_eps);
 
         if xb_q.is_none() {
             let xq = self.xb.to_tensor();
@@ -168,8 +172,8 @@ impl Layer {
         // apply RoPE rotation to the q and k vectors for each head
         if is_gemma {
             self.q
-                .rope_rotate_neox(pos, self.header_size, self.kv_dim)?;
-            k.rope_rotate_neox(pos, self.header_size, self.kv_dim)?;
+                .rope_rotate_neox(pos, self.header_size, self.rope_dim);
+            k.rope_rotate_neox(pos, self.header_size, self.rope_dim);
         } else {
             self.q.rope_rotate(k, pos, self.header_size, self.kv_dim)?;
         }
@@ -205,7 +209,7 @@ impl Layer {
         x.accum(self.xb2.as_slice());
 
         // ffn rmsnorm
-        self.xb.rms_norm(x, rms_ffn_weight);
+        self.xb.rms_norm(x, rms_ffn_weight, self.norm_rms_eps);
 
         // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
         // first calculate self.w1(x) and self.w3(x)
@@ -271,7 +275,7 @@ impl Transformer {
         }
     }
 
-    pub fn run(&mut self, token: u32, pos: u32, w: &Weights) -> Result<&mut [f32], RlmError> {
+    pub fn run(&mut self, token: u32, pos: u32, w: &Weights) -> Result<&mut [f32], PllmError> {
         let c = &self.config;
 
         w.token_embedding_table
@@ -303,21 +307,32 @@ impl Transformer {
                 &mut hb_q,
                 self.config.is_gemma(),
             )?;
+            // if l == self.config.n_layers - 1 {
+            //     println!("{}", l);
+            // }
             // println!("Layer time: l={}, {:.2?}", l, before.elapsed());
         }
 
         // final rmsnorm
         let x_clone = self.x.clone();
-        self.x
-            .rms_norm(x_clone.as_slice(), w.rms_final_weight.as_ref());
+        self.x.rms_norm(
+            x_clone.as_slice(),
+            w.rms_final_weight.as_ref(),
+            self.config.norm_rms_eps,
+        );
         // classifier into logits
 
+        let output_weight = if w.output_weight.is_none() {
+            &w.token_embedding_table
+        } else {
+            &w.output_weight
+        };
+
         if xb_q.is_none() {
-            self.logits
-                .tensor_mul(&self.x.to_tensor(), &w.token_embedding_table);
+            self.logits.tensor_mul(&self.x.to_tensor(), output_weight);
         } else {
             xb_q.quantize(&self.x);
-            self.logits.tensor_mul(&xb_q, &w.token_embedding_table);
+            self.logits.tensor_mul(&xb_q, output_weight);
         }
 
         Ok(&mut self.logits)

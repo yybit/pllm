@@ -7,11 +7,10 @@ use std::{
 use rand::Rng;
 use rayon::prelude::*;
 
-use crate::errors::RlmError;
+use crate::errors::PllmError;
 
 pub trait FloatVec {
-    fn rope_rotate_neox(&mut self, pos: u32, header_size: u32, kv_dim: u32)
-        -> Result<(), RlmError>;
+    fn rope_rotate_neox(&mut self, pos: u32, header_size: u32, kv_dim: u32);
     fn get_chunk(&self, chunk_size: u32, chunk_index: u32) -> &[f32];
 
     fn get_mut_chunk(&mut self, chunk_size: u32, chunk_index: u32) -> &mut [f32];
@@ -20,7 +19,7 @@ pub trait FloatVec {
 
     fn sample(&self) -> u32;
 
-    fn rms_norm(&mut self, src: &[f32], weights: &[f32]);
+    fn rms_norm(&mut self, src: &[f32], weights: &[f32], eps: f32);
 
     // fn mat_mul(&mut self, src: &[f32], weights: &[f32]);
 
@@ -36,7 +35,7 @@ pub trait FloatVec {
         pos: u32,
         header_size: u32,
         kv_dim: u32,
-    ) -> Result<(), RlmError>;
+    ) -> Result<(), PllmError>;
 }
 
 impl FloatVec for [f32] {
@@ -71,11 +70,11 @@ impl FloatVec for [f32] {
 
         self.len() as u32 - 1
     }
-    fn rms_norm(&mut self, src: &[f32], weights: &[f32]) {
+    fn rms_norm(&mut self, src: &[f32], weights: &[f32], eps: f32) {
         let mut ss: f32 = src.iter().map(|&i| i * i).sum();
 
         ss /= src.len() as f32;
-        ss += 1e-5;
+        ss += eps;
         ss = 1.0 / ss.sqrt();
 
         src.iter()
@@ -132,7 +131,7 @@ impl FloatVec for [f32] {
         pos: u32,
         header_size: u32,
         kv_dim: u32,
-    ) -> Result<(), RlmError> {
+    ) -> Result<(), PllmError> {
         for i in (0..self.len() as usize).step_by(2) {
             let head_dim = i as u32 % header_size;
             let freq = 1.0 / 10000.0_f32.powf(head_dim as f32 / header_size as f32);
@@ -157,12 +156,7 @@ impl FloatVec for [f32] {
     }
 
     // ref. https://github.com/crabml/crabml/blob/1e622975d56c7d15dc1c627ee3cb884de0dce953/crabml-core/src/backends/cpu/primitives/rope.rs#L34
-    fn rope_rotate_neox(
-        &mut self,
-        pos: u32,
-        header_size: u32,
-        kv_dim: u32,
-    ) -> Result<(), RlmError> {
+    fn rope_rotate_neox(&mut self, pos: u32, header_size: u32, kv_dim: u32) {
         let head_dim = header_size as usize;
         let rope_dim = kv_dim as usize;
         self.chunks_exact_mut(head_dim).for_each(|chunk| {
@@ -179,8 +173,6 @@ impl FloatVec for [f32] {
                 chunk[i + head_dim / 2] = qp0 * sin_theta + qp1 * cos_theta;
             }
         });
-
-        Ok(())
     }
 }
 

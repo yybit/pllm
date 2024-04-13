@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    errors::RlmError, transformer::Transformer, util::FloatVec, Config, Tokenizer, Weights,
+    errors::PllmError, transformer::Transformer, util::FloatVec, Config, Tokenizer, Weights,
 };
 
 const DEFAULT_STEPS: u32 = 256;
@@ -36,12 +36,12 @@ impl LLM {
         self,
         prompt: String,
         temperature: f32,
-    ) -> Result<InferenceIterator, RlmError> {
+    ) -> Result<InferenceIterator, PllmError> {
         let steps = cmp::min(self.config.seq_len, DEFAULT_STEPS);
 
         let prompt_tokens = self.tokenizer.bpe_encode(prompt)?;
         if prompt_tokens.is_empty() {
-            return Err(RlmError::Other("empty prompt".to_string()));
+            return Err(PllmError::Other("empty prompt".to_string()));
         }
 
         let iterator = InferenceIterator::new(self, prompt_tokens, steps, temperature);
@@ -80,10 +80,12 @@ impl InferenceIterator {
 }
 
 impl Iterator for InferenceIterator {
-    type Item = Result<String, RlmError>;
+    type Item = Result<String, PllmError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if (self.pos != 0 && self.next_token == 1) || self.pos >= self.steps {
+        let eos_token = self.llm.tokenizer.eos_token;
+
+        if (self.pos != 0 && self.next_token == eos_token) || self.pos >= self.steps {
             return None;
         }
 
@@ -111,9 +113,9 @@ impl Iterator for InferenceIterator {
         };
 
         let token_str = match self.llm.tokenizer.get_token(next_token as usize) {
-            Some(t) => t.replace('▁', " "),
+            Some(t) => t.replace('▁', " ").replace("<0x0A>", "\n"),
             None => {
-                return Some(Err(RlmError::Other(format!(
+                return Some(Err(PllmError::Other(format!(
                     "token not found, idx={}",
                     self.next_token
                 ))))
@@ -123,7 +125,7 @@ impl Iterator for InferenceIterator {
         self.pos += 1;
         self.next_token = next_token;
 
-        if next_token == 1 {
+        if next_token == eos_token {
             None
         } else {
             Some(Ok(token_str))

@@ -5,7 +5,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use crate::gguf::GgmlType;
 use crate::tensor::{Tensor, TensorF32, TensorQ8_0};
 use crate::util::FloatVec;
-use crate::{errors::RlmError, gguf};
+use crate::{errors::PllmError, gguf};
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -24,6 +24,9 @@ pub struct Config {
     /// max sequence length
     pub(crate) seq_len: u32,
 
+    pub(crate) norm_rms_eps: f32,
+    pub(crate) rope_dim: u32,
+
     arch: String,
 }
 
@@ -32,7 +35,7 @@ impl Config {
         self.arch.eq("gemma")
     }
 
-    pub fn from_reader(mut reader: impl Read) -> Result<Self, RlmError> {
+    pub fn from_reader(mut reader: impl Read) -> Result<Self, PllmError> {
         let dim = reader.read_u32::<LittleEndian>()?;
         let hidden_dim = reader.read_u32::<LittleEndian>()?;
         let n_layers = reader.read_u32::<LittleEndian>()?;
@@ -49,11 +52,13 @@ impl Config {
             n_kv_heads,
             vocab_size,
             seq_len,
+            norm_rms_eps: 1e-5,
+            rope_dim: dim / n_heads,
             arch: "".to_string(),
         })
     }
 
-    pub fn from_gguf<R: Read + Seek>(gf: &gguf::GgufFile<R>) -> Result<Self, RlmError> {
+    pub fn from_gguf<R: Read + Seek>(gf: &gguf::GgufFile<R>) -> Result<Self, PllmError> {
         let md = gf.metadata();
 
         let arch = md.get_string_result("general.architecture")?;
@@ -70,7 +75,7 @@ impl Config {
             md.get_f32_result(&format!("{}.attention.layer_norm_rms_epsilon", arch))?;
         let rope_dim = md
             .get_u32_result(&format!("{}.rope.dimension_count", arch))
-            .unwrap_or(0);
+            .unwrap_or(dim / n_heads);
         // println!("rms eps: {}, rope dim: {}", norm_rms_eps, rope_dim);
 
         Ok(Self {
@@ -81,6 +86,8 @@ impl Config {
             n_kv_heads,
             vocab_size,
             seq_len,
+            norm_rms_eps,
+            rope_dim,
             arch,
         })
     }
@@ -127,6 +134,8 @@ pub struct Weights {
     config: Config,
 
     quantization_version: GgmlType,
+
+    pub(crate) output_weight: Tensor,
 }
 
 impl Weights {
@@ -158,6 +167,8 @@ impl Weights {
         // let freq_cis_real = vec![0_f32; (c.seq_len * (c.dim / c.n_heads) / 2) as usize];
         // let freq_cis_imag = freq_cis_real.clone();
 
+        let output_weight = Tensor::None;
+
         Self {
             token_embedding_table,
             rms_att_weight,
@@ -174,10 +185,11 @@ impl Weights {
             // freq_cis_imag,
             config: c,
             quantization_version: GgmlType::F32,
+            output_weight,
         }
     }
 
-    pub fn load_data(&mut self, mut reader: impl Read) -> Result<(), RlmError> {
+    pub fn load_data(&mut self, mut reader: impl Read) -> Result<(), PllmError> {
         let mut t = TensorF32::new((self.config.vocab_size * self.config.dim) as usize);
         t.from_reader(&mut reader)?;
         self.token_embedding_table = Tensor::F32(t);
@@ -249,7 +261,7 @@ impl Weights {
         &mut self,
         gf: &mut gguf::GgufFile<R>,
         c: Config,
-    ) -> Result<(), RlmError> {
+    ) -> Result<(), PllmError> {
         let qv = gf
             .metadata()
             .get_u32_result("general.quantization_version")?;
@@ -275,6 +287,13 @@ impl Weights {
 
         gf.get_tensor("output_norm.weight")?
             .dequantize(&mut self.rms_final_weight, 0);
+
+        self.output_weight = match gf.get_tensor("output.weight") {
+            Ok(t) => t,
+            Err(PllmError::TensorNotFound(_)) => Tensor::None,
+            Err(e) => return Err(e),
+        };
+
         Ok(())
     }
 
